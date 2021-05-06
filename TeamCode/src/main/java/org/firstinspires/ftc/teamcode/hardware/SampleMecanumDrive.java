@@ -25,16 +25,21 @@ import com.qualcomm.hardware.bosch.BNO055IMU;
 import com.qualcomm.hardware.lynx.LynxModule;
 import com.qualcomm.robotcore.hardware.DcMotor;
 import com.qualcomm.robotcore.hardware.DcMotorEx;
+import com.qualcomm.robotcore.hardware.DcMotorSimple;
 import com.qualcomm.robotcore.hardware.HardwareMap;
 import com.qualcomm.robotcore.hardware.PIDFCoefficients;
+import com.qualcomm.robotcore.hardware.Servo;
+import com.qualcomm.robotcore.hardware.configuration.annotations.MotorType;
 import com.qualcomm.robotcore.hardware.configuration.typecontainers.MotorConfigurationType;
 
+import org.firstinspires.ftc.teamcode.math.Vector2d;
 import org.firstinspires.ftc.teamcode.util.DashboardUtil;
 import org.firstinspires.ftc.teamcode.util.LynxModuleUtil;
 
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.lang.Math;
 
 import static org.firstinspires.ftc.teamcode.hardware.DriveConstants.BASE_CONSTRAINTS;
 import static org.firstinspires.ftc.teamcode.hardware.DriveConstants.MOTOR_VELO_PID;
@@ -51,14 +56,17 @@ import static org.firstinspires.ftc.teamcode.hardware.DriveConstants.kV;
  */
 @Config
 public class SampleMecanumDrive extends MecanumDrive {
-    public static PIDCoefficients TRANSLATIONAL_PID = new PIDCoefficients(0, 0, 0);
-    public static PIDCoefficients HEADING_PID = new PIDCoefficients(0, 0, 0);
+    public static PIDCoefficients TRANSLATIONAL_PID = new PIDCoefficients(10, 0, 1);
+    public static PIDCoefficients HEADING_PID = new PIDCoefficients(6, 0, 0);
 
-    public static double LATERAL_MULTIPLIER = 1;
+    public static double LATERAL_MULTIPLIER = 2;
 
     public static double VX_WEIGHT = 1;
     public static double VY_WEIGHT = 1;
     public static double OMEGA_WEIGHT = 1;
+
+    double goalX = 70;
+    double goaly = 36;
 
     public enum Mode {
         IDLE,
@@ -80,9 +88,14 @@ public class SampleMecanumDrive extends MecanumDrive {
 
     private List<Pose2d> poseHistory;
 
-    private DcMotorEx leftFront, leftRear, rightRear, rightFront;
-    private List<DcMotorEx> motors;
-    private BNO055IMU imu;
+    public DcMotorEx leftFront, leftRear, rightRear, rightFront, shooterOne, shooterTwo, spindexer, intake;
+    public List<DcMotorEx> motors;
+    public List<DcMotorEx> motorsPlus;
+    public List<DcMotorEx> shooterMotors;
+
+    public Servo wobbleGoalArmOne, wobbleGoalArmTwo, wobbleGoalGripper, shooterAngle, ringGate, intakeBlocker, boomerServo;
+
+    public BNO055IMU imu;
 
     private Pose2d lastPoseOnTurn;
 
@@ -111,23 +124,33 @@ public class SampleMecanumDrive extends MecanumDrive {
             module.setBulkCachingMode(LynxModule.BulkCachingMode.AUTO);
         }
 
-        // TODO: adjust the names of the following hardware devices to match your configuration
-        imu = hardwareMap.get(BNO055IMU.class, "imu");
-        BNO055IMU.Parameters parameters = new BNO055IMU.Parameters();
-        parameters.angleUnit = BNO055IMU.AngleUnit.RADIANS;
-        imu.initialize(parameters);
 
         // TODO: if your hub is mounted vertically, remap the IMU axes so that the z-axis points
         // upward (normal to the floor) using a command like the following:
         // BNO055IMUUtil.remapAxes(imu, AxesOrder.XYZ, AxesSigns.NPN);
 
-        leftFront = hardwareMap.get(DcMotorEx.class, "leftFront");
-        leftRear = hardwareMap.get(DcMotorEx.class, "leftRear");
-        rightRear = hardwareMap.get(DcMotorEx.class, "rightRear");
-        rightFront = hardwareMap.get(DcMotorEx.class, "rightFront");
+        leftFront = hardwareMap.get(DcMotorEx.class, "fL");
+        leftRear = hardwareMap.get(DcMotorEx.class, "rL");
+        rightRear = hardwareMap.get(DcMotorEx.class, "rR");
+        rightFront = hardwareMap.get(DcMotorEx.class, "fR");
+        shooterOne = hardwareMap.get(DcMotorEx.class, "s1");
+        shooterTwo = hardwareMap.get(DcMotorEx.class, "s2");
+        spindexer = hardwareMap.get(DcMotorEx.class, "spinboy");
+        intake = hardwareMap.get(DcMotorEx.class, "int");
+
+        wobbleGoalArmOne = hardwareMap.get(Servo.class, "wAOne");
+        wobbleGoalArmTwo = hardwareMap.get(Servo.class, "wATwo");
+        wobbleGoalGripper = hardwareMap.get(Servo.class, "wG");
+        shooterAngle = hardwareMap.get(Servo.class, "sA");
+        ringGate = hardwareMap.get(Servo.class, "alrGG");
+        intakeBlocker = hardwareMap.get(Servo.class, "mm");
+        boomerServo = hardwareMap.get(Servo.class, "boom");
 
         motors = Arrays.asList(leftFront, leftRear, rightRear, rightFront);
+        motorsPlus = Arrays.asList(shooterOne,shooterTwo,spindexer,intake);
+        shooterMotors = Arrays.asList(shooterOne,shooterTwo);
 
+        wobbleGoalArmTwo.setDirection(Servo.Direction.REVERSE);
         for (DcMotorEx motor : motors) {
             MotorConfigurationType motorConfigurationType = motor.getMotorType().clone();
             motorConfigurationType.setAchieveableMaxRPMFraction(1.0);
@@ -144,10 +167,19 @@ public class SampleMecanumDrive extends MecanumDrive {
             setPIDCoefficients(DcMotor.RunMode.RUN_USING_ENCODER, MOTOR_VELO_PID);
         }
 
+        shooterOne.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+        shooterTwo.setMode(DcMotor.RunMode.RUN_WITHOUT_ENCODER);
+
         // TODO: reverse any motors using DcMotor.setDirection()
 
+        leftFront.setDirection(DcMotor.Direction.REVERSE);
+        leftRear.setDirection(DcMotor.Direction.REVERSE);
+        rightFront.setDirection(DcMotor.Direction.REVERSE);
+        shooterOne.setDirection(DcMotor.Direction.REVERSE);
+        shooterTwo.setDirection(DcMotor.Direction.REVERSE);
+
         // TODO: if desired, use setLocalizer() to change the localization method
-        // for instance, setLocalizer(new ThreeTrackingWheelLocalizer(...));
+        setLocalizer(new StandardTrackingWheelLocalizer(hardwareMap));
     }
 
     public TrajectoryBuilder trajectoryBuilder(Pose2d startPose) {
@@ -344,6 +376,11 @@ public class SampleMecanumDrive extends MecanumDrive {
         setDrivePower(vel);
     }
 
+    public void autoAim(Pose2d position, SampleMecanumDrive drive) {
+        double goalTheta = Math.atan2(goalX - position.getX(), goaly - position.getY()) - position.getHeading();
+        drive.turnAsync(Math.toRadians(goalTheta));
+    }
+
     @NonNull
     @Override
     public List<Double> getWheelPositions() {
@@ -373,6 +410,8 @@ public class SampleMecanumDrive extends MecanumDrive {
 
     @Override
     public double getRawExternalHeading() {
-        return imu.getAngularOrientation().firstAngle;
+        return 0;
     }
+
+
 }

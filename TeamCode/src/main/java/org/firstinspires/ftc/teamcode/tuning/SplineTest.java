@@ -21,18 +21,26 @@ public class SplineTest extends LinearOpMode {
 
         if (isStopRequested()) return;
 
+//        drive.wobbleGoalArm.setPosition(0);
+
+        drive.setPoseEstimate(new Pose2d(0,0,0));
+
         Trajectory traj = drive.trajectoryBuilder(new Pose2d())
-                .splineTo(new Vector2d(30, 30), 0)
+                .splineTo(new Vector2d(30, 30), Math.toRadians(0))
                 .build();
-
         drive.followTrajectory(traj);
-
         sleep(2000);
 
-        drive.followTrajectory(
-                drive.trajectoryBuilder(traj.end(), true)
-                        .splineTo(new Vector2d(0, 0), Math.toRadians(180))
-                        .build()
-        );
+//        drive.wobbleGoalArm.setPosition(.45);
+
+
+
+
+
+//        drive.followTrajectory(
+//                drive.trajectoryBuilder(traj.end(), true)
+//                        .splineTo(new Vector2d(35, 70), Math.toRadians(-90))
+//                        .build()
+//        );
     }
 }
